@@ -1,3 +1,4 @@
 node_modules/
 transactions.db
 *.sqlite
+auth_info_baileys/

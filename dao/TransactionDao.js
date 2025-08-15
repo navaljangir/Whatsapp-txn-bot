@@ -10,18 +10,28 @@ class TransactionDao {
   }
 
   async init() {
-    this.SQL = await initSqlJs();
-    if (fs.existsSync(this.dbPath)) {
-      const fileBuffer = fs.readFileSync(this.dbPath);
-      this.db = new this.SQL.Database(fileBuffer);
-    } else {
-      this.db = new this.SQL.Database();
+    try {
+      this.SQL = await initSqlJs();
+      if (fs.existsSync(this.dbPath)) {
+        const fileBuffer = fs.readFileSync(this.dbPath);
+        this.db = new this.SQL.Database(fileBuffer);
+        console.log('Loaded existing database');
+      } else {
+        this.db = new this.SQL.Database();
+        console.log('Created new database');
+      }
       this.createTable();
-      this.save();
+    } catch (error) {
+      console.error('Error initializing database:', error);
+      throw error;
     }
   }
 
   createTable() {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const sql = `
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY,
@@ -45,6 +55,10 @@ class TransactionDao {
   }
 
   addTransaction(phoneNumber, amount, details = null) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const date = new Date().toISOString();
     this.db.run(
       `INSERT INTO transactions (phone_number, amount, details, date) VALUES (?, ?, ?, ?)`,
@@ -55,6 +69,10 @@ class TransactionDao {
   }
 
   getTotalSent(phoneNumber) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const stmt = this.db.prepare(
       `SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE phone_number = ?`
     );
@@ -68,6 +86,10 @@ class TransactionDao {
   }
 
   getLastTransaction(phoneNumber) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const stmt = this.db.prepare(
       `SELECT * FROM transactions WHERE phone_number = ? ORDER BY created_at DESC LIMIT 1`
     );
@@ -81,6 +103,10 @@ class TransactionDao {
   }
 
   getTransactionsByDate(phoneNumber, targetDate) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
 
@@ -109,6 +135,10 @@ class TransactionDao {
   }
 
   getTransactionsByPeriod(phoneNumber, amount, unit) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const cutoffDate = new Date();
     switch (unit.toLowerCase()) {
       case "d":
@@ -142,6 +172,10 @@ class TransactionDao {
   }
 
   getTransactionsByMonth(phoneNumber, month, year = null) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    
     const currentYear = new Date().getFullYear();
     const targetYear = year
       ? year.toString().length === 2
@@ -174,8 +208,10 @@ class TransactionDao {
   }
 
   close() {
-    this.save();
-    this.db.close();
+    if (this.db) {
+      this.save();
+      this.db.close();
+    }
   }
 }
 

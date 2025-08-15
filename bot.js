@@ -8,7 +8,7 @@ const ALLOWED_NUMBERS = [
     '919513510000@s.whatsapp.net',
     '919697601000@s.whatsapp.net'
 ];
-const transactionDao = new TransactionDao();
+let transactionDao;
 
 function parseDate(dateStr) {
     const formats = [
@@ -59,7 +59,14 @@ function isValidAmount(amount) {
 }
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+    try {
+        // Initialize TransactionDao
+        console.log('Initializing database...');
+        transactionDao = new TransactionDao();
+        await transactionDao.init();
+        console.log('Database initialized successfully');
+        
+        const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
     
     const sock = makeWASocket({
         auth: state,
@@ -136,7 +143,7 @@ async function startBot() {
                         }
                     }
 
-                    await transactionDao.addTransaction(sendNumber, amount, details);
+                    transactionDao.addTransaction(sendNumber, amount, details);
 
                     const recipientJid = `91${sendNumber}@s.whatsapp.net`;
                     let recipientMessage = `You have received ₹${amount} from Vipin jangir.`;
@@ -181,7 +188,7 @@ async function startBot() {
                         // Check if it's a direct date format (DD/MM/YY)
                         const directDate = parseDate(param);
                         if (directDate) {
-                            filteredTransactions = await transactionDao.getTransactionsByDate(detailsNumber, directDate);
+                            filteredTransactions = transactionDao.getTransactionsByDate(detailsNumber, directDate);
                             response += `Transactions for ${formatDate(directDate.toISOString())}:\n`;
                         }
                         // Check if it's date= format
@@ -194,7 +201,7 @@ async function startBot() {
                                 return;
                             }
                             
-                            filteredTransactions = await transactionDao.getTransactionsByDate(detailsNumber, targetDate);
+                            filteredTransactions = transactionDao.getTransactionsByDate(detailsNumber, targetDate);
                             response += `Transactions for ${formatDate(targetDate.toISOString())}:\n`;
                         }
                         // Check if it's month= format
@@ -218,7 +225,7 @@ async function startBot() {
                                 }
                             }
                             
-                            filteredTransactions = await transactionDao.getTransactionsByMonth(detailsNumber, month, year);
+                            filteredTransactions = transactionDao.getTransactionsByMonth(detailsNumber, month, year);
                             const yearText = year ? (year.toString().length === 2 ? `20${year}` : year.toString()) : new Date().getFullYear().toString();
                             response += `Transactions for month ${month}/${yearText}:\n`;
                         }
@@ -231,7 +238,7 @@ async function startBot() {
                             }
                             
                             const [, amount, unit] = periodMatch;
-                            filteredTransactions = await transactionDao.getTransactionsByPeriod(detailsNumber, parseInt(amount), unit);
+                            filteredTransactions = transactionDao.getTransactionsByPeriod(detailsNumber, parseInt(amount), unit);
                             response += `Last ${amount}${unit.toUpperCase()} transactions:\n`;
                         }
                         
@@ -253,8 +260,8 @@ async function startBot() {
                         // Add usage tip
                         response += '\n💡 Tip: Use 10d (days), 1m (months), 1y (years), month=9, or DD/MM/YY for specific periods';
                     } else {
-                        const total = await transactionDao.getTotalSent(detailsNumber);
-                        const lastTxn = await transactionDao.getLastTransaction(detailsNumber);
+                        const total = transactionDao.getTotalSent(detailsNumber);
+                        const lastTxn = transactionDao.getLastTransaction(detailsNumber);
 
                         response += `Total Sent: ₹${total}`;
                         
@@ -297,7 +304,7 @@ async function startBot() {
                         // Check if it's a direct date format (DD/MM/YY or DD-MM-YY)
                         const directDate = parseDate(param);
                         if (directDate) {
-                            billTransactions = await transactionDao.getTransactionsByDate(billNumber, directDate);
+                            billTransactions = transactionDao.getTransactionsByDate(billNumber, directDate);
                             billPeriodText = `for ${formatDate(directDate.toISOString())}`;
                         }
                         // Check if it's date= format
@@ -310,7 +317,7 @@ async function startBot() {
                                 return;
                             }
                             
-                            billTransactions = await transactionDao.getTransactionsByDate(billNumber, targetDate);
+                            billTransactions = transactionDao.getTransactionsByDate(billNumber, targetDate);
                             billPeriodText = `for ${formatDate(targetDate.toISOString())}`;
                         }
                         // Check if it's month= format
@@ -334,7 +341,7 @@ async function startBot() {
                                 }
                             }
                             
-                            billTransactions = await transactionDao.getTransactionsByMonth(billNumber, month, year);
+                            billTransactions = transactionDao.getTransactionsByMonth(billNumber, month, year);
                             const yearText = year ? (year.toString().length === 2 ? `20${year}` : year.toString()) : new Date().getFullYear().toString();
                             billPeriodText = `for month ${month}/${yearText}`;
                         }
@@ -347,13 +354,13 @@ async function startBot() {
                             }
                             
                             const [, amount, unit] = periodMatch;
-                            billTransactions = await transactionDao.getTransactionsByPeriod(billNumber, parseInt(amount), unit);
+                            billTransactions = transactionDao.getTransactionsByPeriod(billNumber, parseInt(amount), unit);
                             billPeriodText = `for last ${amount}${unit.toUpperCase()}`;
                         }
                         
                         billTotal = billTransactions.reduce((sum, txn) => sum + txn.amount, 0);
                     } else {
-                        billTotal = await transactionDao.getTotalSent(billNumber);
+                        billTotal = transactionDao.getTotalSent(billNumber);
                         billPeriodText = 'so far';
                     }
                     
@@ -437,7 +444,28 @@ async function startBot() {
     });
 
     return sock;
+    } catch (error) {
+        console.error('Error starting bot:', error);
+        throw error;
+    }
 }
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\nShutting down bot...');
+    if (transactionDao) {
+        transactionDao.close();
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\nShutting down bot...');
+    if (transactionDao) {
+        transactionDao.close();
+    }
+    process.exit(0);
+});
 
 console.log('Starting WhatsApp Transactions Bot...');
 console.log(`Authorized numbers: ${ALLOWED_NUMBERS.join(', ')}`);
